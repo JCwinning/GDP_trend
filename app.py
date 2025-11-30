@@ -168,7 +168,7 @@ def generate_ai_summary(result_df, sql_query):
         1. What the data shows
         2. Key insights or trends
         3. Any notable patterns or anomalies
-        4. Data limitations if any
+       
 
         Keep the summary concise and insightful (100-200 words).
         Please output in {output_language}.
@@ -181,7 +181,9 @@ def generate_ai_summary(result_df, sql_query):
             #base_url="https://openrouter.ai/api/v1",
         )
         response = client.chat.completions.create(
-            model="ZhipuAI/GLM-4.6",
+            #model="ZhipuAI/GLM-4.6",
+            #model="Qwen/Qwen3-235B-A22B-Instruct-2507",
+            model="deepseek-ai/DeepSeek-V3.2-Exp",
             #model="kwaipilot/kat-coder-pro:free",
             #model="MiniMax/MiniMax-M2",
             messages=[{"role": "user", "content": summary_prompt}],
@@ -209,10 +211,28 @@ try:
         for i, country in enumerate(all_countries_list)
     }
 
-    # Create tabs
-    tab1, tab2 = st.tabs([get_text("gdp_trend"), get_text("query")])
+    # Create indicator display name mapping
+    indicator_display_names = {
+        "gdp_current_usd": "GDP (Current USD)",
+        "gdp_per_capita_current_usd": "GDP Per Capita (Current USD)",
+        "population_total": "Population Total",
+        "gdp_ppp_current_intl": "Total GDP PPP",
+        "gdp_per_capita_ppp_current_intl": "GDP Per Capita PPP",
+        "gdp_per_capita_current_usd_yoy": "GDP Per Capita YoY Growth (%)",
+    }
 
-    with tab1:
+    # Create tabs using radio button for persistence
+    tab_options = ["gdp_trend", "query"]
+    selected_tab = st.radio(
+        "",
+        tab_options,
+        format_func=get_text,
+        horizontal=True,
+        key="tab_selection",
+        label_visibility="collapsed"
+    )
+
+    if selected_tab == "gdp_trend":
         left_col, right_col = st.columns([1, 2])
 
         with left_col:
@@ -227,13 +247,25 @@ try:
 
             # Indicator selection
             indicators = df_gdp["indicator"].unique().tolist()
-            selected_indicator = st.selectbox(
-                get_text("select_indicator"),
-                indicators,
-                index=indicators.index("gdp_per_capita_current_usd")
-                if "gdp_per_capita_current_usd" in indicators
-                else 0,
+            # Create display options with friendly names
+            indicator_options = [
+                indicator_display_names.get(ind, ind.replace("_", " ").title())
+                for ind in indicators
+            ]
+            # Get default index
+            default_index = (
+                indicators.index("gdp_per_capita_ppp_current_intl")
+                if "gdp_per_capita_ppp_current_intl" in indicators
+                else 0
             )
+            # Display selection with friendly names
+            selected_display_name = st.selectbox(
+                get_text("select_indicator"),
+                indicator_options,
+                index=default_index,
+            )
+            # Map back to technical name for filtering
+            selected_indicator = indicators[indicator_options.index(selected_display_name)]
 
             # Year range selection
             min_year = int(df_gdp["year"].min())
@@ -309,7 +341,7 @@ try:
             else:
                 st.warning(get_text("no_data_warning"))
 
-    with tab2:
+    if selected_tab == "query":
         ai_col, query_col = st.columns(2)
 
         with ai_col:
@@ -334,61 +366,69 @@ try:
 
                 if st.button(get_text("run_ai"), key="run_ai"):
                     if user_question:
-                        try:
-                            # Get table schema
-                            schema = get_table_schema(df_gdp)
+                        with st.status("🤔 Thinking...", expanded=True) as status:
+                            try:
+                                # Get table schema
+                                st.write("📊 Analyzing your question...")
+                                schema = get_table_schema(df_gdp)
 
-                            # Create a prompt for the AI
-                            indicators_list = df_gdp["indicator"].unique().tolist()
-                            prompt = f"""You are a data analyst. Your task is to convert a natural language question into a SQL query.
-                            You will be given a question, the schema of a pandas DataFrame named 'df_gdp', and the first 5 rows of the data.
-                            Your response should be only the SQL query.
+                                # Create a prompt for the AI
+                                indicators_list = df_gdp["indicator"].unique().tolist()
+                                prompt = f"""You are a data analyst. Your task is to convert a natural language question into a SQL query.
+                                You will be given a question, the schema of a pandas DataFrame named 'df_gdp', and the first 5 rows of the data.
+                                Your response should be only the SQL query.
 
-                            Here is the schema of the `df_gdp` table:
-                            {schema.to_string(index=False)}
+                                Here is the schema of the `df_gdp` table:
+                                {schema.to_string(index=False)}
 
-                            Here are the first 5 rows of the `df_gdp` table:
-                            {df_gdp.head().to_string()}
+                                Here are the first 5 rows of the `df_gdp` table:
+                                {df_gdp.head().to_string()}
 
-                            The available indicators are: {indicators_list}
-                            Please use one of these indicators in the SQL query if the question is about a specific indicator.
-                            Please use ISO 3166-1 alpha-3 3 letter to select country everytime.its call "country_code_3" in our database.
+                                The available indicators are: {indicators_list}
+                                Please use one of these indicators in the SQL query if the question is about a specific indicator.
+                                Please use ISO 3166-1 alpha-3 3 letter to select country everytime.its call "country_code_3" in our database.
 
-                            Question: {user_question}
+                                Question: {user_question}
 
-                            only return SQL Query:
-                            """
+                                only return SQL Query:
+                                """
 
-                            # Call OpenAI API
-                            client = OpenAI(
-                                api_key=api_key,
-                                base_url="https://api-inference.modelscope.cn/v1",
-                                #base_url="https://openrouter.ai/api/v1",
-                            )
-                            response = client.chat.completions.create(
-                                 model="ZhipuAI/GLM-4.6",
-                                #model="MiniMax/MiniMax-M2",
-                                #model="deepseek-ai/DeepSeek-V3.2-Exp",
-                                #model="kwaipilot/kat-coder-pro:free",
-                                messages=[{"role": "user", "content": prompt}],
-                            )
+                                # Call OpenAI API
+                                st.write("🧠 Generating SQL query from your question...")
+                                client = OpenAI(
+                                    api_key=api_key,
+                                    base_url="https://api-inference.modelscope.cn/v1",
+                                    #base_url="https://openrouter.ai/api/v1",
+                                )
+                                response = client.chat.completions.create(
+                                     #model="ZhipuAI/GLM-4.6",
+                                     model="Qwen/Qwen3-235B-A22B-Instruct-2507",
+                                    #model="MiniMax/MiniMax-M2",
+                                    #model="deepseek-ai/DeepSeek-V3.2-Exp",
+                                    #model="kwaipilot/kat-coder-pro:free",
+                                    messages=[{"role": "user", "content": prompt}],
+                                )
 
-                            sql_query_raw = response.choices[0].message.content.strip()
-                            sql_query = extract_sql_from_markdown(sql_query_raw)
+                                sql_query_raw = response.choices[0].message.content.strip()
+                                sql_query = extract_sql_from_markdown(sql_query_raw)
 
-                            # Store results in session state
-                            st.session_state.ai_query = sql_query
-                            st.session_state.ai_raw_response = sql_query_raw
+                                # Store results in session state
+                                st.session_state.ai_query = sql_query
+                                st.session_state.ai_raw_response = sql_query_raw
 
-                            # Execute the query
-                            result_df = duckdb.query(sql_query).to_df()
-                            st.session_state.ai_result = result_df
-                            st.session_state.should_generate_ai_summary = True
+                                # Execute the query
+                                st.write("⚡ Executing query...")
+                                result_df = duckdb.query(sql_query).to_df()
+                                st.session_state.ai_result = result_df
+                                st.session_state.should_generate_ai_summary = True
+                                
+                                status.update(label="✅ Complete!", state="complete", expanded=False)
 
-                        except Exception as e:
-                            st.error(f"An error occurred: {e}")
-                            st.session_state.ai_result = None
-                            st.session_state.should_generate_ai_summary = False
+                            except Exception as e:
+                                st.error(f"An error occurred: {e}")
+                                st.session_state.ai_result = None
+                                st.session_state.should_generate_ai_summary = False
+                                status.update(label="❌ Error occurred", state="error", expanded=False)
                     else:
                         st.warning(get_text("please_enter_question"))
                         st.session_state.should_generate_ai_summary = False

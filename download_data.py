@@ -14,6 +14,47 @@ import pandas as pd
 import wbgapi as wb
 import time
 import os
+import requests
+import json
+
+# Countries to exclude from download (no data available in World Bank API)
+EXCLUDE_COUNTRIES = [
+    "Anguilla",
+    "Åland Islands",
+    "Antarctica",
+    "French Southern Territories",
+    "Bonaire, Sint Eustatius and Saba",
+    "Bahamas",
+    "Saint Barthélemy",
+    "Bouvet Island",
+    "Cocos (Keeling) Islands",
+    "Cook Islands",
+    "Christmas Island",
+    "Western Sahara",
+    "Falkland Islands (Malvinas)",
+    "Guernsey",
+    "Guadeloupe",
+    "French Guiana",
+    "Heard Island and McDonald Islands",
+    "British Indian Ocean Territory",
+    "Jersey",
+    "Montserrat",
+    "Martinique",
+    "Mayotte",
+    "Norfolk Island",
+    "Niue",
+    "Pitcairn",
+    "Réunion",
+    "South Georgia and the South Sandwich Islands",
+    "Saint Helena, Ascension and Tristan da Cunha",
+    "Svalbard and Jan Mayen",
+    "Saint Pierre and Miquelon",
+    "Tokelau",
+    "Taiwan, Province of China",
+    "United States Minor Outlying Islands",
+    "Holy See (Vatican City State)",
+    "Wallis and Futuna",
+]
 
 
 def create_country_reference_table():
@@ -30,64 +71,268 @@ def create_country_reference_table():
     countries = list(pycountry.countries)
 
     # Create dataframe with country information
-    df_all = pd.DataFrame([{
-        'country_name': country.name,
-        'country_code_2': country.alpha_2,
-        'country_code_3': country.alpha_3
-    } for country in countries])
+    df_all = pd.DataFrame(
+        [
+            {
+                "country_name": country.name,
+                "country_code_2": country.alpha_2,
+                "country_code_3": country.alpha_3,
+            }
+            for country in countries
+        ]
+    )
 
     # Predefined ISO Alpha-2 to continent mapping
     iso_to_continent = {
-        "AF": "Asia", "AX": "Europe", "AL": "Europe", "DZ": "Africa", "AS": "Oceania",
-        "AD": "Europe", "AO": "Africa", "AI": "North America", "AQ": "Antarctica", "AG": "North America",
-        "AR": "South America", "AM": "Asia", "AW": "North America", "AU": "Oceania", "AT": "Europe",
-        "AZ": "Asia", "BS": "North America", "BH": "Asia", "BD": "Asia", "BB": "North America",
-        "BY": "Europe", "BE": "Europe", "BZ": "North America", "BJ": "Africa", "BM": "North America",
-        "BT": "Asia", "BO": "South America", "BQ": "North America", "BA": "Europe", "BW": "Africa",
-        "BV": "Antarctica", "BR": "South America", "IO": "Asia", "BN": "Asia", "BG": "Europe",
-        "BF": "Africa", "BI": "Africa", "KH": "Asia", "CM": "Africa", "CA": "North America",
-        "CV": "Africa", "KY": "North America", "CF": "Africa", "TD": "Africa", "CL": "South America",
-        "CN": "Asia", "CX": "Asia", "CC": "Asia", "CO": "South America", "KM": "Africa",
-        "CD": "Africa", "CG": "Africa", "CK": "Oceania", "CR": "North America", "CI": "Africa",
-        "HR": "Europe", "CU": "North America", "CW": "North America", "CY": "Asia", "CZ": "Europe",
-        "DK": "Europe", "DJ": "Africa", "DM": "North America", "DO": "North America", "EC": "South America",
-        "EG": "Africa", "SV": "North America", "GQ": "Africa", "ER": "Africa", "EE": "Europe",
-        "SZ": "Africa", "ET": "Africa", "FK": "South America", "FO": "Europe", "FJ": "Oceania",
-        "FI": "Europe", "FR": "Europe", "GF": "South America", "PF": "Oceania", "TF": "Antarctica",
-        "GA": "Africa", "GM": "Africa", "GE": "Asia", "DE": "Europe", "GH": "Africa",
-        "GI": "Europe", "GR": "Europe", "GL": "North America", "GD": "North America", "GP": "North America",
-        "GU": "Oceania", "GT": "North America", "GG": "Europe", "GN": "Africa", "GW": "Africa",
-        "GY": "South America", "HT": "North America", "HM": "Antarctica", "VA": "Europe", "HN": "North America",
-        "HK": "Asia", "HU": "Europe", "IS": "Europe", "IN": "Asia", "ID": "Asia",
-        "IR": "Asia", "IQ": "Asia", "IE": "Europe", "IM": "Europe", "IL": "Asia",
-        "IT": "Europe", "JM": "North America", "JP": "Asia", "JE": "Europe", "JO": "Asia",
-        "KZ": "Asia", "KE": "Africa", "KI": "Oceania", "KP": "Asia", "KR": "Asia",
-        "KW": "Asia", "KG": "Asia", "LA": "Asia", "LV": "Europe", "LB": "Asia",
-        "LS": "Africa", "LR": "Africa", "LY": "Africa", "LI": "Europe", "LT": "Europe",
-        "LU": "Europe", "MO": "Asia", "MG": "Africa", "MW": "Africa", "MY": "Asia",
-        "MV": "Asia", "ML": "Africa", "MT": "Europe", "MH": "Oceania", "MQ": "North America",
-        "MR": "Africa", "MU": "Africa", "YT": "Africa", "MX": "North America", "FM": "Oceania",
-        "MD": "Europe", "MC": "Europe", "MN": "Asia", "ME": "Europe", "MS": "North America",
-        "MA": "Africa", "MZ": "Africa", "MM": "Asia", "NA": "Africa", "NR": "Oceania",
-        "NP": "Asia", "NL": "Europe", "NC": "Oceania", "NZ": "Oceania", "NI": "North America",
-        "NE": "Africa", "NG": "Africa", "NU": "Oceania", "NF": "Oceania", "MK": "Europe",
-        "MP": "Oceania", "NO": "Europe", "OM": "Asia", "PK": "Asia", "PW": "Oceania",
-        "PS": "Asia", "PA": "North America", "PG": "Oceania", "PY": "South America", "PE": "South America",
-        "PH": "Asia", "PN": "Oceania", "PL": "Europe", "PT": "Europe", "PR": "North America",
-        "QA": "Asia", "RE": "Africa", "RO": "Europe", "RU": "Europe", "RW": "Africa",
-        "BL": "North America", "SH": "Africa", "KN": "North America", "LC": "North America", "MF": "North America",
-        "PM": "North America", "VC": "North America", "WS": "Oceania", "SM": "Europe", "ST": "Africa",
-        "SA": "Asia", "SN": "Africa", "RS": "Europe", "SC": "Africa", "SL": "Africa",
-        "SG": "Asia", "SX": "North America", "SK": "Europe", "SI": "Europe", "SB": "Oceania",
-        "SO": "Africa", "ZA": "Africa", "GS": "Antarctica", "SS": "Africa", "ES": "Europe",
-        "LK": "Asia", "SD": "Africa", "SR": "South America", "SJ": "Europe", "SE": "Europe",
-        "CH": "Europe", "SY": "Asia", "TW": "Asia", "TJ": "Asia", "TZ": "Africa",
-        "TH": "Asia", "TL": "Asia", "TG": "Africa", "TK": "Oceania", "TO": "Oceania",
-        "TT": "North America", "TN": "Africa", "TR": "Asia", "TM": "Asia", "TC": "North America",
-        "TV": "Oceania", "UG": "Africa", "UA": "Europe", "AE": "Asia", "GB": "Europe",
-        "US": "North America", "UM": "Oceania", "UY": "South America", "UZ": "Asia", "VU": "Oceania",
-        "VE": "South America", "VN": "Asia", "VG": "North America", "VI": "North America", "WF": "Oceania",
-        "EH": "Africa", "YE": "Asia", "ZM": "Africa", "ZW": "Africa"
+        "AF": "Asia",
+        "AX": "Europe",
+        "AL": "Europe",
+        "DZ": "Africa",
+        "AS": "Oceania",
+        "AD": "Europe",
+        "AO": "Africa",
+        "AI": "North America",
+        "AQ": "Antarctica",
+        "AG": "North America",
+        "AR": "South America",
+        "AM": "Asia",
+        "AW": "North America",
+        "AU": "Oceania",
+        "AT": "Europe",
+        "AZ": "Asia",
+        "BS": "North America",
+        "BH": "Asia",
+        "BD": "Asia",
+        "BB": "North America",
+        "BY": "Europe",
+        "BE": "Europe",
+        "BZ": "North America",
+        "BJ": "Africa",
+        "BM": "North America",
+        "BT": "Asia",
+        "BO": "South America",
+        "BQ": "North America",
+        "BA": "Europe",
+        "BW": "Africa",
+        "BV": "Antarctica",
+        "BR": "South America",
+        "IO": "Asia",
+        "BN": "Asia",
+        "BG": "Europe",
+        "BF": "Africa",
+        "BI": "Africa",
+        "KH": "Asia",
+        "CM": "Africa",
+        "CA": "North America",
+        "CV": "Africa",
+        "KY": "North America",
+        "CF": "Africa",
+        "TD": "Africa",
+        "CL": "South America",
+        "CN": "Asia",
+        "CX": "Asia",
+        "CC": "Asia",
+        "CO": "South America",
+        "KM": "Africa",
+        "CD": "Africa",
+        "CG": "Africa",
+        "CK": "Oceania",
+        "CR": "North America",
+        "CI": "Africa",
+        "HR": "Europe",
+        "CU": "North America",
+        "CW": "North America",
+        "CY": "Asia",
+        "CZ": "Europe",
+        "DK": "Europe",
+        "DJ": "Africa",
+        "DM": "North America",
+        "DO": "North America",
+        "EC": "South America",
+        "EG": "Africa",
+        "SV": "North America",
+        "GQ": "Africa",
+        "ER": "Africa",
+        "EE": "Europe",
+        "SZ": "Africa",
+        "ET": "Africa",
+        "FK": "South America",
+        "FO": "Europe",
+        "FJ": "Oceania",
+        "FI": "Europe",
+        "FR": "Europe",
+        "GF": "South America",
+        "PF": "Oceania",
+        "TF": "Antarctica",
+        "GA": "Africa",
+        "GM": "Africa",
+        "GE": "Asia",
+        "DE": "Europe",
+        "GH": "Africa",
+        "GI": "Europe",
+        "GR": "Europe",
+        "GL": "North America",
+        "GD": "North America",
+        "GP": "North America",
+        "GU": "Oceania",
+        "GT": "North America",
+        "GG": "Europe",
+        "GN": "Africa",
+        "GW": "Africa",
+        "GY": "South America",
+        "HT": "North America",
+        "HM": "Antarctica",
+        "VA": "Europe",
+        "HN": "North America",
+        "HK": "Asia",
+        "HU": "Europe",
+        "IS": "Europe",
+        "IN": "Asia",
+        "ID": "Asia",
+        "IR": "Asia",
+        "IQ": "Asia",
+        "IE": "Europe",
+        "IM": "Europe",
+        "IL": "Asia",
+        "IT": "Europe",
+        "JM": "North America",
+        "JP": "Asia",
+        "JE": "Europe",
+        "JO": "Asia",
+        "KZ": "Asia",
+        "KE": "Africa",
+        "KI": "Oceania",
+        "KP": "Asia",
+        "KR": "Asia",
+        "KW": "Asia",
+        "KG": "Asia",
+        "LA": "Asia",
+        "LV": "Europe",
+        "LB": "Asia",
+        "LS": "Africa",
+        "LR": "Africa",
+        "LY": "Africa",
+        "LI": "Europe",
+        "LT": "Europe",
+        "LU": "Europe",
+        "MO": "Asia",
+        "MG": "Africa",
+        "MW": "Africa",
+        "MY": "Asia",
+        "MV": "Asia",
+        "ML": "Africa",
+        "MT": "Europe",
+        "MH": "Oceania",
+        "MQ": "North America",
+        "MR": "Africa",
+        "MU": "Africa",
+        "YT": "Africa",
+        "MX": "North America",
+        "FM": "Oceania",
+        "MD": "Europe",
+        "MC": "Europe",
+        "MN": "Asia",
+        "ME": "Europe",
+        "MS": "North America",
+        "MA": "Africa",
+        "MZ": "Africa",
+        "MM": "Asia",
+        "NA": "Africa",
+        "NR": "Oceania",
+        "NP": "Asia",
+        "NL": "Europe",
+        "NC": "Oceania",
+        "NZ": "Oceania",
+        "NI": "North America",
+        "NE": "Africa",
+        "NG": "Africa",
+        "NU": "Oceania",
+        "NF": "Oceania",
+        "MK": "Europe",
+        "MP": "Oceania",
+        "NO": "Europe",
+        "OM": "Asia",
+        "PK": "Asia",
+        "PW": "Oceania",
+        "PS": "Asia",
+        "PA": "North America",
+        "PG": "Oceania",
+        "PY": "South America",
+        "PE": "South America",
+        "PH": "Asia",
+        "PN": "Oceania",
+        "PL": "Europe",
+        "PT": "Europe",
+        "PR": "North America",
+        "QA": "Asia",
+        "RE": "Africa",
+        "RO": "Europe",
+        "RU": "Europe",
+        "RW": "Africa",
+        "BL": "North America",
+        "SH": "Africa",
+        "KN": "North America",
+        "LC": "North America",
+        "MF": "North America",
+        "PM": "North America",
+        "VC": "North America",
+        "WS": "Oceania",
+        "SM": "Europe",
+        "ST": "Africa",
+        "SA": "Asia",
+        "SN": "Africa",
+        "RS": "Europe",
+        "SC": "Africa",
+        "SL": "Africa",
+        "SG": "Asia",
+        "SX": "North America",
+        "SK": "Europe",
+        "SI": "Europe",
+        "SB": "Oceania",
+        "SO": "Africa",
+        "ZA": "Africa",
+        "GS": "Antarctica",
+        "SS": "Africa",
+        "ES": "Europe",
+        "LK": "Asia",
+        "SD": "Africa",
+        "SR": "South America",
+        "SJ": "Europe",
+        "SE": "Europe",
+        "CH": "Europe",
+        "SY": "Asia",
+        "TW": "Asia",
+        "TJ": "Asia",
+        "TZ": "Africa",
+        "TH": "Asia",
+        "TL": "Asia",
+        "TG": "Africa",
+        "TK": "Oceania",
+        "TO": "Oceania",
+        "TT": "North America",
+        "TN": "Africa",
+        "TR": "Asia",
+        "TM": "Asia",
+        "TC": "North America",
+        "TV": "Oceania",
+        "UG": "Africa",
+        "UA": "Europe",
+        "AE": "Asia",
+        "GB": "Europe",
+        "US": "North America",
+        "UM": "Oceania",
+        "UY": "South America",
+        "UZ": "Asia",
+        "VU": "Oceania",
+        "VE": "South America",
+        "VN": "Asia",
+        "VG": "North America",
+        "VI": "North America",
+        "WF": "Oceania",
+        "EH": "Africa",
+        "YE": "Asia",
+        "ZM": "Africa",
+        "ZW": "Africa",
     }
 
     # Apply continent mapping to dataframe
@@ -343,7 +588,7 @@ def create_country_reference_table():
         "Yemen": "也门",
         "Zambia": "赞比亚",
         "Zimbabwe": "津巴布韦",
-        "Åland Islands": "奥兰群岛"
+        "Åland Islands": "奥兰群岛",
     }
 
     # Add Chinese names to dataframe
@@ -353,6 +598,99 @@ def create_country_reference_table():
     df_all["country_name_cn"] = df_all["country_name_cn"].fillna(df_all["country_name"])
 
     return df_all
+
+
+def download_taiwan_data_from_imf():
+    """
+    Download Taiwan economic data from IMF DataMapper API.
+
+    Returns:
+        pd.DataFrame: Economic data for Taiwan from IMF
+    """
+    print("Downloading Taiwan data from IMF API...")
+
+    # IMF indicators mapping
+    imf_indicators = {
+        "NGDPD": "gdp_current_usd",  # GDP (current US$)
+        "NGDPDPC": "gdp_per_capita_current_usd",  # GDP per capita (current US$)
+        "LP": "population_total",  # Population (millions, need to convert)
+        "PPPGDP": "gdp_ppp_current_intl",  # GDP, PPP (current international $)
+        "PPPPC": "gdp_per_capita_ppp_current_intl",  # GDP per capita, PPP (current international $)
+    }
+
+    taiwan_data = []
+    start_year = 2000
+    end_year = 2024
+
+    # Generate year list as string for API
+    years = ",".join(str(year) for year in range(start_year, end_year + 1))
+
+    for imf_code, indicator_name in imf_indicators.items():
+        try:
+            # IMF API URL
+            url = f"https://www.imf.org/external/datamapper/api/v1/{imf_code}/TWN?periods={years}"
+
+            response = requests.get(url, timeout=30)
+
+            if response.status_code == 200:
+                data = response.json()
+
+                # Extract Taiwan data from response
+                # Note: IMF API structure is data["values"][indicator_code]["TWN"]
+                if (
+                    "values" in data
+                    and imf_code in data["values"]
+                    and "TWN" in data["values"][imf_code]
+                ):
+                    twn_values = data["values"][imf_code]["TWN"]
+
+                    for year_str, value in twn_values.items():
+                        if value is not None:
+                            year = int(year_str)
+
+                            # Convert and round values
+                            if indicator_name == "population_total":
+                                # IMF population is in millions, convert to actual count
+                                rounded_value = round(value * 1_000_000)
+                            elif indicator_name == "gdp_current_usd":
+                                # IMF GDP is in billions, convert to actual USD
+                                rounded_value = round(value * 1_000_000_000)
+                            elif indicator_name == "gdp_ppp_current_intl":
+                                # IMF PPP GDP is in billions, convert to actual
+                                rounded_value = round(value * 1_000_000_000)
+                            elif indicator_name in [
+                                "gdp_per_capita_current_usd",
+                                "gdp_per_capita_ppp_current_intl",
+                            ]:
+                                # Per capita values are already in correct units
+                                rounded_value = round(value)
+                            else:
+                                rounded_value = round(value)
+
+                            taiwan_data.append(
+                                {
+                                    "country_name": "Taiwan",
+                                    "country_code_2": "TW",
+                                    "country_code_3": "TWN",
+                                    "continent": "Asia",
+                                    "year": year,
+                                    "indicator": indicator_name,
+                                    "value": rounded_value,
+                                }
+                            )
+
+                print(f"Successfully fetched {indicator_name} for Taiwan from IMF")
+            else:
+                print(
+                    f"Warning: Failed to fetch {imf_code} from IMF API (status code: {response.status_code})"
+                )
+
+        except Exception as e:
+            print(f"Warning: Error fetching {imf_code} for Taiwan from IMF: {str(e)}")
+            continue
+
+    print(f"Downloaded {len(taiwan_data)} data points for Taiwan from IMF")
+    return pd.DataFrame(taiwan_data)
 
 
 def download_economic_data(df_countries):
@@ -372,6 +710,8 @@ def download_economic_data(df_countries):
         "NY.GDP.MKTP.CD": "gdp_current_usd",  # GDP at market prices (current US$)
         "NY.GDP.PCAP.CD": "gdp_per_capita_current_usd",  # GDP per capita (current US$)
         "SP.POP.TOTL": "population_total",  # Total population
+        "NY.GDP.MKTP.PP.CD": "gdp_ppp_current_intl",  # GDP, PPP (current international $)
+        "NY.GDP.PCAP.PP.CD": "gdp_per_capita_ppp_current_intl",  # GDP per capita, PPP (current international $)
     }
 
     # Create empty list to store data
@@ -381,7 +721,9 @@ def download_economic_data(df_countries):
     start_year = 2000
     end_year = 2024  # Most recent complete year
 
-    print(f"Downloading data for {len(df_countries)} countries from {start_year} to {end_year}...")
+    print(
+        f"Downloading data for {len(df_countries)} countries from {start_year} to {end_year}..."
+    )
 
     # Process countries in batches to avoid API rate limits
     batch_size = 5
@@ -395,6 +737,11 @@ def download_economic_data(df_countries):
             country_code = country["country_code_3"]  # Use ISO3 code for World Bank API
             country_name = country["country_name"]
             continent = country["continent"]
+
+            # Skip countries in the exclude list (no data available in World Bank API)
+            if country_name in EXCLUDE_COUNTRIES:
+                countries_processed += 1
+                continue
 
             # Skip countries without ISO3 code
             if pd.isna(country_code):
@@ -437,19 +784,23 @@ def download_economic_data(df_countries):
                                     # Default rounding for any other indicators
                                     rounded_value = round(raw_value)
 
-                                all_data.append({
-                                    "country_name": country_name,
-                                    "country_code_2": country["country_code_2"],
-                                    "country_code_3": country_code,
-                                    "continent": continent,
-                                    "year": year,
-                                    "indicator": indicator_name,
-                                    "value": rounded_value,
-                                })
+                                all_data.append(
+                                    {
+                                        "country_name": country_name,
+                                        "country_code_2": country["country_code_2"],
+                                        "country_code_3": country_code,
+                                        "continent": continent,
+                                        "year": year,
+                                        "indicator": indicator_name,
+                                        "value": rounded_value,
+                                    }
+                                )
                                 country_data_count += 1
 
                     except Exception as e:
-                        print(f"Warning: Error fetching {indicator_name} for {country_name}: {str(e)}")
+                        print(
+                            f"Warning: Error fetching {indicator_name} for {country_name}: {str(e)}"
+                        )
                         continue
 
                 if country_data_count > 0:
@@ -462,8 +813,10 @@ def download_economic_data(df_countries):
                 countries_processed += 1
                 continue
 
-        print(f"Processed {min(i+batch_size, len(df_countries))} of {len(df_countries)} countries... "
-              f"Collected data for {countries_with_data} countries so far.")
+        print(
+            f"Processed {min(i + batch_size, len(df_countries))} of {len(df_countries)} countries... "
+            f"Collected data for {countries_with_data} countries so far."
+        )
 
         # Add delay to respect API rate limits
         time.sleep(0.5)
@@ -506,19 +859,30 @@ def main():
         df_countries = create_country_reference_table()
         print(f"Created reference table for {len(df_countries)} countries")
 
-        # Step 2: Download economic data
-        df_gdp, countries_processed, countries_with_data = download_economic_data(df_countries)
+        # Step 2: Download economic data from World Bank
+        df_gdp, countries_processed, countries_with_data = download_economic_data(
+            df_countries
+        )
 
-        # Step 3: Save data to files
+        # Step 3: Download Taiwan data from IMF (since it's not in World Bank)
+        df_taiwan = download_taiwan_data_from_imf()
+
+        # Step 4: Merge Taiwan data with World Bank data
+        if len(df_taiwan) > 0:
+            df_gdp = pd.concat([df_gdp, df_taiwan], ignore_index=True)
+            print(f"Added Taiwan data from IMF: {len(df_taiwan)} data points")
+            countries_with_data += 1
+
+        # Step 5: Save data to files
         save_data_files(df_countries, df_gdp)
 
-        # Step 4: Print summary
+        # Step 6: Print summary
         print("\n" + "=" * 60)
         print("Download Complete!")
         print("=" * 60)
         print(f"Total data points: {len(df_gdp)}")
         print(f"Total countries processed: {countries_processed}")
-        print(f"Countries with data: {countries_with_data}")
+        print(f"Countries with data: {countries_with_data} (including Taiwan from IMF)")
         if len(df_gdp) > 0:
             print(f"Years covered: {df_gdp['year'].min()} to {df_gdp['year'].max()}")
         print("=" * 60)

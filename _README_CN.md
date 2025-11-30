@@ -27,13 +27,14 @@ https://world-GDP-trend.streamlit.app/
 
 ## 功能特性
 
-- 📊 **交互式可视化**：探索GDP、人均GDP和人口随时间的变化趋势
-- 🗺️ **全球覆盖**：所有国家数据，支持大洲筛选
+- 📊 **交互式可视化**：探索GDP、人均GDP、PPP GDP和人口随时间的变化趋势
+- 🗺️ **全球覆盖**：包括台湾在内的200+个国家和地区的数据，支持大洲筛选
 - 🔍 **SQL查询界面**：直接通过DuckDB进行数据库查询
-- 🤖 **AI驱动分析**：使用ModelScope API将自然语言转换为SQL查询
+- 🤖 **AI驱动分析**：使用ModelScope API将自然语言转换为SQL查询并进行数据分析
 - 📈 **同比增长率**：自动计算人均GDP的年度增长率
-- 🌐 **多语言支持**：支持英语和中文的国家名称
+- 🌐 **多语言支持**：完整的中英文界面，包括国家名称翻译
 - 💾 **数据持久化**：基于会话的查询结果存储
+- 🌏 **多源数据**：整合世界银行API和IMF DataMapper数据
 
 ## 快速开始
 
@@ -81,8 +82,14 @@ https://world-GDP-trend.streamlit.app/
 
 ### GDP趋势可视化
 1. 从下拉菜单中选择国家（默认：中国、日本、韩国）
-2. 选择一个经济指标（GDP、人均GDP、人口或同比增长）
-3. 使用滑块调整年份范围
+2. 选择一个经济指标：
+   - GDP（现价美元）
+   - 人均GDP（现价美元）
+   - 总GDP PPP（购买力平价）
+   - 人均GDP PPP
+   - 总人口
+   - 人均GDP同比增长率（%）
+3. 使用滑块调整年份范围（2000-2024）
 4. 查看交互式折线图和数据表
 
 ### SQL查询界面
@@ -106,32 +113,42 @@ AI将生成并执行SQL查询来回答您的问题。
 ```
 GDP_trend/
 ├── app.py                          # 主要的Streamlit应用程序
-├── download_data.py               # 数据下载的Python脚本
-├── language.py                     # 语言翻译模块
-├── streamlit_design.md             # 设计规范
+├── download_data.py               # 数据下载脚本（世界银行 + IMF API）
+├── language.py                     # 双语翻译模块
 ├── data/
 │   ├── all_countries_with_iso_continents.csv  # 国家元数据
 │   └── gdp_data_2000_present.csv              # 经济指标数据
+├── images/                         # README截图
 ├── CLAUDE.md                       # Claude代码开发指导
 ├── README.md                       # 英文版本文档
-├── README_CN.md                    # 中文版本文档
+├── _README_CN.md                   # 中文版本文档（本文件）
 ├── favicon.svg                     # 应用程序图标
+├── requirements.txt                # Python依赖项
 └── .env                           # 环境变量（需创建）
 ```
 
 ## 数据来源
 
-- **世界银行API**：经济指标（GDP、人均GDP、人口）
-- **pycountry**：国家代码和名称
-- **时间范围**：2000年至今（每年更新）
-- **更新频率**：通过数据下载脚本手动更新
+- **世界银行API**：200+个国家的经济指标
+  - GDP（现价美元）
+  - 人均GDP（现价美元）
+  - PPP GDP（现价国际元）
+  - 人均PPP GDP（现价国际元）
+  - 总人口
+- **IMF DataMapper API**：台湾经济数据
+  - GDP、人均GDP、PPP GDP、人均PPP GDP和人口
+- **pycountry**：ISO国家代码和名称
+- **时间范围**：2000年至2024年
+- **更新频率**：通过 `download_data.py` 脚本手动更新
 
 ## 可用指标
 
 - `gdp_current_usd`：按市场价格计算的GDP（现价美元）
 - `gdp_per_capita_current_usd`：人均GDP（现价美元）
+- `gdp_ppp_current_intl`：基于购买力平价的GDP（现价国际元）
+- `gdp_per_capita_ppp_current_intl`：基于购买力平价的人均GDP（现价国际元）
 - `population_total`：总人口
-- `gdp_per_capita_current_usd_yoy`：人均GDP同比增长率（计算得出）
+- `gdp_per_capita_current_usd_yoy`：人均GDP同比增长率（%，计算得出）
 
 ## API集成
 
@@ -139,12 +156,18 @@ GDP_trend/
 - 通过 `wbgapi` Python包访问
 - 在请求之间实现延迟进行速率限制
 - 对缺失数据自动进行错误处理
+- 覆盖200+个国家和地区
+
+### IMF DataMapper API
+- 直接REST API调用获取台湾经济数据
+- 基础URL：`https://www.imf.org/external/datamapper/api/v1`
+- 提供台湾的GDP、PPP GDP和人口数据（2000-2024）
 
 ### ModelScope API
 - 用于AI驱动的SQL生成和数据分析
 - 基础URL：`https://api-inference.modelscope.cn/v1`
-- 模型：
-  - `ZhipuAI/GLM-4.6` 用于SQL生成和AI摘要生成
+- 模型：`ZhipuAI/GLM-4.6` 用于SQL生成和数据摘要生成
+- 支持双语输出（中文/英文）
 
 ## 开发
 
