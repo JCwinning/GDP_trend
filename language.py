@@ -57,7 +57,7 @@ translations = {
         "run_query": "运行查询",
         "data_source": "数据来源：世界银行",
         "last_updated": "最后更新：2024",
-        "default_question": "2020年至2023年期间，中国、日本和韩国的平均人均GDP是多少？",
+        "default_question": "2020到2024年，中国，泰国人均GDP",
         "api_key_error": "未找到'modelscope'环境变量的API密钥。",
         "api_key_instruction": "请确保您的项目目录中有`.env`文件，内容如下：",
         "please_enter_question": "请输入问题。",

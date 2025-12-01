@@ -31,6 +31,9 @@ if "language" not in st.session_state:
 # Initialize session state with translated default question
 if "user_question" not in st.session_state:
     st.session_state.user_question = get_text("default_question")
+# Initialize tab selection state
+if "tab_selection" not in st.session_state:
+    st.session_state.tab_selection = "gdp_trend"
 # Set page configuration
 st.set_page_config(
     page_title="GDP Trend Dashboard", layout="wide", page_icon="favicon.svg"
@@ -60,7 +63,13 @@ with col3:
     st.markdown("<br>", unsafe_allow_html=True)  # Add space to lower the button
     current_lang = "中文" if st.session_state.language == "en" else "EN"
     if st.button(current_lang, help="Toggle language / 切换语言"):
+        # Save current tab selection before changing language
+        current_tab = st.session_state.get("tab_selection", "gdp_trend")
         st.session_state.language = "zh" if st.session_state.language == "en" else "en"
+        # Restore tab selection after language change
+        st.session_state.tab_selection = current_tab
+        # Update the default question to match the new language
+        st.session_state.user_question = get_text("default_question")
         st.rerun()
 
 
@@ -223,6 +232,9 @@ try:
 
     # Create tabs using radio button for persistence
     tab_options = ["gdp_trend", "query"]
+    # Ensure tab_selection is in session state
+    if "tab_selection" not in st.session_state:
+        st.session_state.tab_selection = "gdp_trend"
     selected_tab = st.radio(
         "",
         tab_options,
