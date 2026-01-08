@@ -34,6 +34,13 @@ if "user_question" not in st.session_state:
 # Initialize tab selection state
 if "tab_selection" not in st.session_state:
     st.session_state.tab_selection = "gdp_trend"
+# Initialize GDP Trend selections state (will be set after data loading)
+if "selected_countries" not in st.session_state:
+    st.session_state.selected_countries = ["China", "Korea, Republic of", "Japan"]
+if "selected_indicator" not in st.session_state:
+    st.session_state.selected_indicator = "gdp_per_capita_ppp_current_intl"
+if "selected_years" not in st.session_state:
+    st.session_state.selected_years = (2000, 2024)  # Default, will be updated after data loads
 # Set page configuration
 st.set_page_config(
     page_title="GDP Trend Dashboard", layout="wide", page_icon="favicon.svg"
@@ -192,7 +199,7 @@ def generate_ai_summary(result_df, sql_query):
         response = client.chat.completions.create(
             #model="ZhipuAI/GLM-4.6",
             #model="Qwen/Qwen3-235B-A22B-Instruct-2507",
-            model="deepseek-ai/DeepSeek-V3.2-Exp",
+            model="deepseek-ai/DeepSeek-V3.2",
             #model="kwaipilot/kat-coder-pro:free",
             #model="MiniMax/MiniMax-M2",
             messages=[{"role": "user", "content": summary_prompt}],
@@ -212,13 +219,11 @@ try:
     # Calculate YoY GDP growth
     df_gdp = calculate_yoy_gdp_growth(df_gdp)
 
-    # Create a consistent color map for all countries
-    all_countries_list = sorted(df_gdp["country_name"].unique())
-    color_scale = px.colors.qualitative.Plotly
-    color_map = {
-        country: color_scale[i % len(color_scale)]
-        for i, country in enumerate(all_countries_list)
-    }
+    # Update session state with proper year range if not yet set or using defaults
+    if st.session_state.selected_years == (2000, 2024):  # Still using default values
+        min_year = int(df_gdp["year"].min())
+        max_year = int(df_gdp["year"].max())
+        st.session_state.selected_years = (min_year, max_year)
 
     # Create indicator display name mapping
     indicator_display_names = {
@@ -252,9 +257,8 @@ try:
 
             # Country selection
             all_countries = df_gdp["country_name"].unique().tolist()
-            default_countries = ["China", "Korea, Republic of", "Japan"]
             selected_countries = st.multiselect(
-                get_text("select_countries"), all_countries, default=default_countries
+                get_text("select_countries"), all_countries, key="selected_countries"
             )
 
             # Indicator selection
@@ -264,20 +268,23 @@ try:
                 indicator_display_names.get(ind, ind.replace("_", " ").title())
                 for ind in indicators
             ]
-            # Get default index
-            default_index = (
-                indicators.index("gdp_per_capita_ppp_current_intl")
-                if "gdp_per_capita_ppp_current_intl" in indicators
+            # Get current index based on session state
+            current_indicator = st.session_state.selected_indicator
+            current_index = (
+                indicators.index(current_indicator)
+                if current_indicator in indicators
                 else 0
             )
             # Display selection with friendly names
             selected_display_name = st.selectbox(
                 get_text("select_indicator"),
                 indicator_options,
-                index=default_index,
+                index=current_index,
             )
             # Map back to technical name for filtering
             selected_indicator = indicators[indicator_options.index(selected_display_name)]
+            # Update session state when selection changes
+            st.session_state.selected_indicator = selected_indicator
 
             # Year range selection
             min_year = int(df_gdp["year"].min())
@@ -286,7 +293,7 @@ try:
                 get_text("select_year_range"),
                 min_value=min_year,
                 max_value=max_year,
-                value=(min_year, max_year),
+                key="selected_years",
             )
 
         with right_col:
@@ -312,12 +319,21 @@ try:
                     f"{selected_indicator.replace('_', ' ').title()} Over Time"
                 )
 
+                # Dynamically create color map for selected countries to ensure distinct colors
+                # Use a larger palette (Alphabet has 26 colors)
+                color_scale = px.colors.qualitative.Alphabet
+                # If more than 26 countries, we might cycle, but this is much better than 10
+                current_color_map = {
+                    country: color_scale[i % len(color_scale)]
+                    for i, country in enumerate(sorted(selected_countries))
+                }
+
                 fig = px.line(
                     filtered_df,
                     x="year",
                     y="value",
                     color="country_name",
-                    color_discrete_map=color_map,
+                    color_discrete_map=current_color_map,
                     title=f"{selected_indicator.replace('_', ' ').title()} by Country",
                     labels={
                         "year": "Year",
