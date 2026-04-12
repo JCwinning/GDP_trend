@@ -612,6 +612,7 @@ def download_taiwan_data_from_imf():
     # IMF indicators mapping
     imf_indicators = {
         "NGDPD": "gdp_current_usd",  # GDP (current US$)
+        "NGDP_R": "gdp_constant_2015_usd", # Real GDP (constant prices)
         "NGDPDPC": "gdp_per_capita_current_usd",  # GDP per capita (current US$)
         "LP": "population_total",  # Population (millions, need to convert)
         "PPPGDP": "gdp_ppp_current_intl",  # GDP, PPP (current international $)
@@ -620,7 +621,7 @@ def download_taiwan_data_from_imf():
 
     taiwan_data = []
     start_year = 2000
-    end_year = 2024
+    end_year = 2025
 
     # Generate year list as string for API
     years = ",".join(str(year) for year in range(start_year, end_year + 1))
@@ -652,11 +653,8 @@ def download_taiwan_data_from_imf():
                             if indicator_name == "population_total":
                                 # IMF population is in millions, convert to actual count
                                 rounded_value = round(value * 1_000_000)
-                            elif indicator_name == "gdp_current_usd":
-                                # IMF GDP is in billions, convert to actual USD
-                                rounded_value = round(value * 1_000_000_000)
-                            elif indicator_name == "gdp_ppp_current_intl":
-                                # IMF PPP GDP is in billions, convert to actual
+                            elif indicator_name in ["gdp_current_usd", "gdp_ppp_current_intl", "gdp_constant_2015_usd"]:
+                                # IMF GDP values are in billions, convert to actual
                                 rounded_value = round(value * 1_000_000_000)
                             elif indicator_name in [
                                 "gdp_per_capita_current_usd",
@@ -708,6 +706,7 @@ def download_economic_data(df_countries):
     # World Bank indicators to download
     indicators = {
         "NY.GDP.MKTP.CD": "gdp_current_usd",  # GDP at market prices (current US$)
+        "NY.GDP.MKTP.KD": "gdp_constant_2015_usd", # GDP (constant 2015 US$)
         "NY.GDP.PCAP.CD": "gdp_per_capita_current_usd",  # GDP per capita (current US$)
         "SP.POP.TOTL": "population_total",  # Total population
         "NY.GDP.MKTP.PP.CD": "gdp_ppp_current_intl",  # GDP, PPP (current international $)
@@ -726,92 +725,88 @@ def download_economic_data(df_countries):
     )
 
     # Process countries in batches to avoid API rate limits
-    batch_size = 5
+    batch_size = 20
     countries_processed = 0
     countries_with_data = 0
+    indicator_codes = list(indicators.keys())
 
     for i in range(0, len(df_countries), batch_size):
         batch = df_countries.iloc[i : i + batch_size]
-
+        
+        valid_countries = []
         for index, country in batch.iterrows():
-            country_code = country["country_code_3"]  # Use ISO3 code for World Bank API
-            country_name = country["country_name"]
-            continent = country["continent"]
-
-            # Skip countries in the exclude list (no data available in World Bank API)
-            if country_name in EXCLUDE_COUNTRIES:
+            if country["country_name"] in EXCLUDE_COUNTRIES or pd.isna(country["country_code_3"]):
                 countries_processed += 1
                 continue
+            valid_countries.append(country)
 
-            # Skip countries without ISO3 code
-            if pd.isna(country_code):
-                continue
+        if not valid_countries:
+            print(f"Processed {min(i + batch_size, len(df_countries))} of {len(df_countries)} countries... "
+                  f"Collected data for {countries_with_data} countries so far.")
+            continue
 
-            country_data_count = 0
-            try:
-                # Fetch data for each indicator
-                for indicator_code, indicator_name in indicators.items():
-                    try:
-                        data = wb.data.fetch(
-                            indicator_code,
-                            country_code,
-                            time=range(start_year, end_year + 1),
-                        )
+        country_codes = [c["country_code_3"] for c in valid_countries]
+        country_lookup = {c["country_code_3"]: c for c in valid_countries}
+        country_has_data = {code: False for code in country_codes}
 
-                        # Process the data
-                        data_list = list(data)
-                        for point in data_list:
-                            if point["value"] is not None:
-                                # Extract year from time string (e.g., 'YR2020' -> 2020)
-                                year_str = point["time"]
-                                if year_str.startswith("YR"):
-                                    year = int(year_str[2:])
-                                else:
-                                    year = int(year_str)
+        try:
+            # Fetch data for all indicators and all countries in this batch in a single API call
+            data = wb.data.fetch(
+                indicator_codes,
+                country_codes,
+                time=range(start_year, end_year + 1),
+            )
 
-                                # Round values based on indicator type for consistency
-                                raw_value = point["value"]
-                                if indicator_name == "gdp_current_usd":
-                                    # Round GDP to whole numbers
-                                    rounded_value = round(raw_value)
-                                elif indicator_name == "gdp_per_capita_current_usd":
-                                    # Round GDP per capita to 0 decimal places
-                                    rounded_value = round(raw_value)
-                                elif indicator_name == "population_total":
-                                    # Round population to whole numbers
-                                    rounded_value = round(raw_value)
-                                else:
-                                    # Default rounding for any other indicators
-                                    rounded_value = round(raw_value)
-
-                                all_data.append(
-                                    {
-                                        "country_name": country_name,
-                                        "country_code_2": country["country_code_2"],
-                                        "country_code_3": country_code,
-                                        "continent": continent,
-                                        "year": year,
-                                        "indicator": indicator_name,
-                                        "value": rounded_value,
-                                    }
-                                )
-                                country_data_count += 1
-
-                    except Exception as e:
-                        print(
-                            f"Warning: Error fetching {indicator_name} for {country_name}: {str(e)}"
-                        )
+            for point in data:
+                if point["value"] is not None:
+                    code = point["economy"]
+                    series = point["series"]
+                    
+                    if code not in country_lookup or series not in indicators:
                         continue
+                        
+                    country = country_lookup[code]
+                    indicator_name = indicators[series]
+                    
+                    # Extract year from time string (e.g., 'YR2020' -> 2020)
+                    year_str = point["time"]
+                    if year_str.startswith("YR"):
+                        year = int(year_str[2:])
+                    else:
+                        year = int(year_str)
 
-                if country_data_count > 0:
+                    # Round values based on indicator type for consistency
+                    raw_value = point["value"]
+                    if indicator_name == "gdp_current_usd":
+                        rounded_value = round(raw_value)
+                    elif indicator_name == "gdp_per_capita_current_usd":
+                        rounded_value = round(raw_value)
+                    elif indicator_name == "population_total":
+                        rounded_value = round(raw_value)
+                    else:
+                        rounded_value = round(raw_value)
+
+                    all_data.append(
+                        {
+                            "country_name": country["country_name"],
+                            "country_code_2": country["country_code_2"],
+                            "country_code_3": code,
+                            "continent": country["continent"],
+                            "year": year,
+                            "indicator": indicator_name,
+                            "value": rounded_value,
+                        }
+                    )
+                    country_has_data[code] = True
+
+            for code, has_data in country_has_data.items():
+                if has_data:
                     countries_with_data += 1
-
                 countries_processed += 1
 
-            except Exception as e:
-                print(f"Error processing {country_name}: {str(e)}")
-                countries_processed += 1
-                continue
+        except Exception as e:
+            print(f"Error processing batch {country_codes}: {str(e)}")
+            countries_processed += len(valid_countries)
 
         print(
             f"Processed {min(i + batch_size, len(df_countries))} of {len(df_countries)} countries... "

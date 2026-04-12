@@ -37,8 +37,12 @@ if "tab_selection" not in st.session_state:
 # Initialize GDP Trend selections state (will be set after data loading)
 if "selected_countries" not in st.session_state:
     st.session_state.selected_countries = ["China", "Korea, Republic of", "Japan"]
+if "selected_base_indicator" not in st.session_state:
+    st.session_state.selected_base_indicator = "real GDP per capita"
+if "selected_format" not in st.session_state:
+    st.session_state.selected_format = "number"
 if "selected_indicator" not in st.session_state:
-    st.session_state.selected_indicator = "gdp_per_capita_ppp_current_intl"
+    st.session_state.selected_indicator = "gdp_per_capita_constant_2015_usd"
 if "selected_years" not in st.session_state:
     st.session_state.selected_years = (2000, 2024)  # Default, will be updated after data loads
 # Set page configuration
@@ -101,33 +105,64 @@ def get_table_schema(df):
     return schema
 
 
+def calculate_derived_indicators(df):
+    """
+    Calculate derived indicators like Real GDP Per Capita
+    """
+    pivot_df = df.pivot_table(
+        index=['country_name', 'country_code_2', 'country_code_3', 'continent', 'year'], 
+        columns='indicator', values='value').reset_index()
+    
+    derived_dfs = []
+    
+    if "gdp_constant_2015_usd" in pivot_df.columns and "population_total" in pivot_df.columns:
+        temp_df = pivot_df.dropna(subset=['gdp_constant_2015_usd', 'population_total']).copy()
+        temp_df['value'] = temp_df['gdp_constant_2015_usd'] / temp_df['population_total']
+        temp_df['indicator'] = 'gdp_per_capita_constant_2015_usd'
+        temp_df = temp_df[['country_name', 'country_code_2', 'country_code_3', 'continent', 'year', 'indicator', 'value']]
+        derived_dfs.append(temp_df)
+
+    if derived_dfs:
+        res = pd.concat([df] + derived_dfs, ignore_index=True)
+        return res
+    return df
+
+
 def calculate_yoy_gdp_growth(df):
     """
-    Calculate year-over-year GDP per capita growth rate for each country
-    Returns DataFrame with new indicator 'gdp_per_capita_current_usd_yoy'
+    Calculate year-over-year growth rates for all indicators dynamically
     """
-    # Filter for GDP per capita data
-    gdp_per_capita_df = df[df["indicator"] == "gdp_per_capita_current_usd"].copy()
+    yoy_dfs = []
 
-    if gdp_per_capita_df.empty:
-        return df
+    indicators = df["indicator"].unique()
+    for ind in indicators:
+        if ind.endswith("_yoy"):
+            continue
 
-    # Sort by country and year to ensure proper calculation
-    gdp_per_capita_df = gdp_per_capita_df.sort_values(["country_name", "year"])
+        source_df = df[df["indicator"] == ind].copy()
+        if source_df.empty:
+            continue
 
-    # Calculate year-over-year growth rate
-    gdp_per_capita_df["pct_change"] = (
-        gdp_per_capita_df.groupby("country_name")["value"].pct_change() * 100
-    )
+        # Sort by country and year to ensure proper calculation
+        source_df = source_df.sort_values(["country_name", "year"])
 
-    # Create new indicator rows
-    yoy_growth_df = gdp_per_capita_df.dropna(subset=["pct_change"]).copy()
-    yoy_growth_df["indicator"] = "gdp_per_capita_current_usd_yoy"
-    yoy_growth_df["value"] = yoy_growth_df["pct_change"]
-    yoy_growth_df = yoy_growth_df.drop(columns=["pct_change"])
+        # Calculate year-over-year growth rate
+        source_df["pct_change"] = (
+            source_df.groupby("country_name")["value"].pct_change() * 100
+        )
+
+        # Create new indicator rows
+        yoy_df = source_df.dropna(subset=["pct_change"]).copy()
+        yoy_df["indicator"] = ind + "_yoy"
+        yoy_df["value"] = yoy_df["pct_change"]
+        yoy_df = yoy_df.drop(columns=["pct_change"])
+        yoy_dfs.append(yoy_df)
 
     # Combine with original data
-    result_df = pd.concat([df, yoy_growth_df], ignore_index=True)
+    if yoy_dfs:
+        result_df = pd.concat([df] + yoy_dfs, ignore_index=True)
+    else:
+        result_df = df
 
     return result_df
 
@@ -216,7 +251,8 @@ try:
     df_gdp = load_data()
     df_countries = load_country_info()
 
-    # Calculate YoY GDP growth
+    # Calculate derived first, then YoY
+    df_gdp = calculate_derived_indicators(df_gdp)
     df_gdp = calculate_yoy_gdp_growth(df_gdp)
 
     # Update session state with proper year range if not yet set or using defaults
@@ -224,16 +260,6 @@ try:
         min_year = int(df_gdp["year"].min())
         max_year = int(df_gdp["year"].max())
         st.session_state.selected_years = (min_year, max_year)
-
-    # Create indicator display name mapping
-    indicator_display_names = {
-        "gdp_current_usd": "GDP (Current USD)",
-        "gdp_per_capita_current_usd": "GDP Per Capita (Current USD)",
-        "population_total": "Population Total",
-        "gdp_ppp_current_intl": "Total GDP PPP",
-        "gdp_per_capita_ppp_current_intl": "GDP Per Capita PPP",
-        "gdp_per_capita_current_usd_yoy": "GDP Per Capita YoY Growth (%)",
-    }
 
     # Create tabs using radio button for persistence
     tab_options = ["gdp_trend", "query"]
@@ -261,29 +287,51 @@ try:
                 get_text("select_countries"), all_countries, key="selected_countries"
             )
 
-            # Indicator selection
-            indicators = df_gdp["indicator"].unique().tolist()
-            # Create display options with friendly names
-            indicator_options = [
-                indicator_display_names.get(ind, ind.replace("_", " ").title())
-                for ind in indicators
-            ]
-            # Get current index based on session state
-            current_indicator = st.session_state.selected_indicator
-            current_index = (
-                indicators.index(current_indicator)
-                if current_indicator in indicators
-                else 0
-            )
-            # Display selection with friendly names
-            selected_display_name = st.selectbox(
-                get_text("select_indicator"),
-                indicator_options,
-                index=current_index,
-            )
-            # Map back to technical name for filtering
-            selected_indicator = indicators[indicator_options.index(selected_display_name)]
-            # Update session state when selection changes
+            # Define Base Indicator mappings
+            base_indicator_map = {
+                "GDP": "gdp_current_usd",
+                "real GDP": "gdp_constant_2015_usd",
+                "PPP": "gdp_ppp_current_intl",
+                "GDP per capita": "gdp_per_capita_current_usd",
+                "real GDP per capita": "gdp_per_capita_constant_2015_usd",
+                "PPP per capita": "gdp_per_capita_ppp_current_intl",
+                "Population": "population_total"
+            }
+            base_options = list(base_indicator_map.keys())
+
+            # Format options
+            format_options = ["number", "growth"]
+
+            col_ind, col_fmt = st.columns(2)
+            with col_ind:
+                current_base = st.session_state.get("selected_base_indicator", "real GDP per capita")
+                current_base_idx = base_options.index(current_base) if current_base in base_options else 4
+                selected_base = st.selectbox(
+                    "Indicator",
+                    base_options,
+                    index=current_base_idx,
+                )
+                st.session_state.selected_base_indicator = selected_base
+
+            with col_fmt:
+                current_format = st.session_state.get("selected_format", "number")
+                current_format_idx = format_options.index(current_format) if current_format in format_options else 0
+                selected_format = st.selectbox(
+                    "Format",
+                    format_options,
+                    index=current_format_idx,
+                )
+                st.session_state.selected_format = selected_format
+
+            # Compute actual internal indicator code
+            base_code = base_indicator_map[selected_base]
+            if selected_format == "growth":
+                selected_indicator = base_code + "_yoy"
+                display_name = f"{selected_base} YoY Growth (%)"
+            else:
+                selected_indicator = base_code
+                display_name = selected_base
+
             st.session_state.selected_indicator = selected_indicator
 
             # Year range selection
@@ -316,7 +364,7 @@ try:
             if not filtered_df.empty:
                 # Line chart
                 st.subheader(
-                    f"{selected_indicator.replace('_', ' ').title()} Over Time"
+                    f"{display_name} Over Time"
                 )
 
                 # Dynamically create color map for selected countries to ensure distinct colors
@@ -334,17 +382,17 @@ try:
                     y="value",
                     color="country_name",
                     color_discrete_map=current_color_map,
-                    title=f"{selected_indicator.replace('_', ' ').title()} by Country",
+                    title=f"{display_name} by Country",
                     labels={
                         "year": "Year",
-                        "value": selected_indicator.replace("_", " ").title(),
+                        "value": display_name,
                         "country_name": "Country",
                     },
                 )
 
                 fig.update_layout(
                     xaxis_title="Year",
-                    yaxis_title=selected_indicator.replace("_", " ").title(),
+                    yaxis_title=display_name,
                     legend_title="Country",
                     hovermode="x unified",
                 )
