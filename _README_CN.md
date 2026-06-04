@@ -88,8 +88,10 @@ https://world-GDP-trend.streamlit.app/
    - 总GDP PPP（购买力平价）
    - 人均GDP PPP
    - 总人口
+   - CPI通胀率、失业率、贸易占比、税收收入和产业增加值占比
+   - Big Mac 指数
    - 人均GDP同比增长率（%）
-3. 使用滑块调整年份范围（2000-2024）
+3. 使用滑块调整年份范围
 4. 查看交互式折线图和数据表
 
 ### SQL查询界面
@@ -113,7 +115,7 @@ AI将生成并执行SQL查询来回答您的问题。
 ```
 GDP_trend/
 ├── app.py                          # 主要的Streamlit应用程序
-├── download_data.py               # 数据下载脚本（世界银行 + IMF API）
+├── download_data.py               # 数据下载脚本（世界银行 + IMF + Big Mac数据）
 ├── language.py                     # 双语翻译模块
 ├── data/
 │   ├── all_countries_with_iso_continents.csv  # 国家元数据
@@ -135,10 +137,14 @@ GDP_trend/
   - PPP GDP（现价国际元）
   - 人均PPP GDP（现价国际元）
   - 总人口
+  - CPI通胀率、失业率、出口/进口占GDP、税收占GDP
+  - 制造业和服务业增加值占GDP
 - **IMF DataMapper API**：台湾经济数据
-  - GDP、人均GDP、PPP GDP、人均PPP GDP和人口
+  - GDP、人均GDP、PPP GDP、人均PPP GDP、人口、通胀率和失业率
+- **The Economist Big Mac Data**：来自 `TheEconomist/big-mac-data` 的 Big Mac 指数数据
+  - 每个国家每年保留当年最新一次调查的原始美元 Big Mac 指数，单位为百分比
 - **pycountry**：ISO国家代码和名称
-- **时间范围**：2000年至2024年
+- **时间范围**：2000年至各数据源最新可用年份
 - **更新频率**：通过 `download_data.py` 脚本手动更新
 
 ## 可用指标
@@ -148,6 +154,14 @@ GDP_trend/
 - `gdp_ppp_current_intl`：基于购买力平价的GDP（现价国际元）
 - `gdp_per_capita_ppp_current_intl`：基于购买力平价的人均GDP（现价国际元）
 - `population_total`：总人口
+- `inflation_cpi_annual_pct`：CPI通胀率（年度百分比）
+- `unemployment_total_pct`：失业率（占总劳动力百分比）
+- `exports_goods_services_pct_gdp`：货物和服务出口占GDP百分比
+- `imports_goods_services_pct_gdp`：货物和服务进口占GDP百分比
+- `tax_revenue_pct_gdp`：税收收入占GDP百分比
+- `manufacturing_value_added_pct_gdp`：制造业增加值占GDP百分比
+- `services_value_added_pct_gdp`：服务业增加值占GDP百分比
+- `big_mac_index_usd`：Big Mac原始美元指数（相对美元的高估/低估百分比）
 - `gdp_per_capita_current_usd_yoy`：人均GDP同比增长率（%，计算得出）
 
 ## API集成
@@ -156,12 +170,17 @@ GDP_trend/
 - 通过 `wbgapi` Python包访问
 - 在请求之间实现延迟进行速率限制
 - 对缺失数据自动进行错误处理
-- 覆盖200+个国家和地区
+- 世界银行指标覆盖200+个国家和地区，具体覆盖度因指标而异
 
 ### IMF DataMapper API
 - 直接REST API调用获取台湾经济数据
 - 基础URL：`https://www.imf.org/external/datamapper/api/v1`
-- 提供台湾的GDP、PPP GDP和人口数据（2000-2024）
+- 提供台湾的GDP、PPP GDP、人口、通胀率和失业率数据
+
+### The Economist Big Mac Data
+- 从 `https://raw.githubusercontent.com/TheEconomist/big-mac-data/master/output-data/big-mac-full-index.csv` 直接下载CSV
+- 每个国家每年保留当年最新一次 Big Mac 调查
+- 将原始美元指数保存为相对美元的高估/低估百分比
 
 ### ModelScope API
 - 用于AI驱动的SQL生成和数据分析
@@ -232,6 +251,6 @@ python download_data.py
 
 ---
 
-**数据来源**：世界银行
-**最后更新**：2024年
+**数据来源**：世界银行、IMF DataMapper、The Economist Big Mac data
+**最后更新**：运行 `python download_data.py` 刷新数据
 **技术栈**：Python、Streamlit、Plotly、DuckDB、ModelScope API

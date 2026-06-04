@@ -45,6 +45,8 @@ if "selected_indicator" not in st.session_state:
     st.session_state.selected_indicator = "gdp_per_capita_constant_2015_usd"
 if "selected_years" not in st.session_state:
     st.session_state.selected_years = (2000, 2024)  # Default, will be updated after data loads
+if "country_color_map" not in st.session_state:
+    st.session_state.country_color_map = {}
 # Set page configuration
 st.set_page_config(
     page_title="GDP Trend Dashboard", layout="wide", page_icon="favicon.svg"
@@ -261,21 +263,9 @@ try:
         max_year = int(df_gdp["year"].max())
         st.session_state.selected_years = (min_year, max_year)
 
-    # Create tabs using radio button for persistence
-    tab_options = ["gdp_trend", "query"]
-    # Ensure tab_selection is in session state
-    if "tab_selection" not in st.session_state:
-        st.session_state.tab_selection = "gdp_trend"
-    selected_tab = st.radio(
-        "",
-        tab_options,
-        format_func=get_text,
-        horizontal=True,
-        key="tab_selection",
-        label_visibility="collapsed"
-    )
+    gdp_tab, query_tab = st.tabs([get_text("gdp_trend"), get_text("query")])
 
-    if selected_tab == "gdp_trend":
+    with gdp_tab:
         left_col, right_col = st.columns([1, 2])
 
         with left_col:
@@ -295,36 +285,56 @@ try:
                 "GDP per capita": "gdp_per_capita_current_usd",
                 "real GDP per capita": "gdp_per_capita_constant_2015_usd",
                 "PPP per capita": "gdp_per_capita_ppp_current_intl",
-                "Population": "population_total"
+                "Population": "population_total",
+                "Inflation CPI (%)": "inflation_cpi_annual_pct",
+                "Unemployment (%)": "unemployment_total_pct",
+                "Exports (% of GDP)": "exports_goods_services_pct_gdp",
+                "Imports (% of GDP)": "imports_goods_services_pct_gdp",
+                "Tax revenue (% of GDP)": "tax_revenue_pct_gdp",
+                "Manufacturing value added (% of GDP)": "manufacturing_value_added_pct_gdp",
+                "Services value added (% of GDP)": "services_value_added_pct_gdp",
+                "Big Mac index vs USD (%)": "big_mac_index_usd",
+            }
+            non_growth_indicators = {
+                "inflation_cpi_annual_pct",
+                "unemployment_total_pct",
+                "exports_goods_services_pct_gdp",
+                "imports_goods_services_pct_gdp",
+                "tax_revenue_pct_gdp",
+                "manufacturing_value_added_pct_gdp",
+                "services_value_added_pct_gdp",
+                "big_mac_index_usd",
             }
             base_options = list(base_indicator_map.keys())
-
-            # Format options
-            format_options = ["number", "growth"]
+            if st.session_state.selected_base_indicator not in base_options:
+                st.session_state.selected_base_indicator = "real GDP per capita"
 
             col_ind, col_fmt = st.columns(2)
             with col_ind:
-                current_base = st.session_state.get("selected_base_indicator", "real GDP per capita")
-                current_base_idx = base_options.index(current_base) if current_base in base_options else 4
                 selected_base = st.selectbox(
                     "Indicator",
                     base_options,
-                    index=current_base_idx,
+                    key="selected_base_indicator",
                 )
-                st.session_state.selected_base_indicator = selected_base
+
+            # Format options
+            base_code = base_indicator_map[selected_base]
+            format_options = (
+                ["number"]
+                if base_code in non_growth_indicators
+                else ["number", "growth"]
+            )
+            if st.session_state.selected_format not in format_options:
+                st.session_state.selected_format = "number"
 
             with col_fmt:
-                current_format = st.session_state.get("selected_format", "number")
-                current_format_idx = format_options.index(current_format) if current_format in format_options else 0
                 selected_format = st.selectbox(
                     "Format",
                     format_options,
-                    index=current_format_idx,
+                    key="selected_format",
                 )
-                st.session_state.selected_format = selected_format
 
             # Compute actual internal indicator code
-            base_code = base_indicator_map[selected_base]
             if selected_format == "growth":
                 selected_indicator = base_code + "_yoy"
                 display_name = f"{selected_base} YoY Growth (%)"
@@ -367,13 +377,21 @@ try:
                     f"{display_name} Over Time"
                 )
 
-                # Dynamically create color map for selected countries to ensure distinct colors
-                # Use a larger palette (Alphabet has 26 colors)
+                # Keep country colors stable when users add or remove countries.
                 color_scale = px.colors.qualitative.Alphabet
-                # If more than 26 countries, we might cycle, but this is much better than 10
+                color_map = st.session_state.country_color_map
+                countries_for_color = (
+                    selected_countries
+                    if selected_countries
+                    else sorted(filtered_df["country_name"].unique())
+                )
+                for country in countries_for_color:
+                    if country not in color_map:
+                        color_map[country] = color_scale[len(color_map) % len(color_scale)]
                 current_color_map = {
-                    country: color_scale[i % len(color_scale)]
-                    for i, country in enumerate(sorted(selected_countries))
+                    country: color_map[country]
+                    for country in countries_for_color
+                    if country in color_map
                 }
 
                 fig = px.line(
@@ -394,7 +412,7 @@ try:
                     xaxis_title="Year",
                     yaxis_title=display_name,
                     legend_title="Country",
-                    hovermode="x unified",
+                    hovermode="closest",
                 )
 
                 st.plotly_chart(fig, use_container_width=True)
@@ -417,7 +435,7 @@ try:
             else:
                 st.warning(get_text("no_data_warning"))
 
-    if selected_tab == "query":
+    with query_tab:
         ai_col, query_col = st.columns(2)
 
         with ai_col:

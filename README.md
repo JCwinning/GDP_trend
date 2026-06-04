@@ -88,8 +88,10 @@ The dashboard will open in your web browser at `http://localhost:8501`.
    - Total GDP PPP (Purchasing Power Parity)
    - GDP Per Capita PPP
    - Population Total
+   - Inflation CPI, unemployment, trade shares, tax revenue, and sector value added
+   - Big Mac Index vs USD
    - GDP Per Capita YoY Growth (%)
-3. Adjust the year range using the slider (2000-2024)
+3. Adjust the year range using the slider
 4. View interactive line charts and data tables
 
 ### SQL Query Interface
@@ -117,7 +119,7 @@ The AI will generate and execute SQL queries to answer your questions.
 ```
 GDP_trend/
 ├── app.py                          # Main Streamlit application
-├── download_data.py               # Data download script (World Bank + IMF APIs)
+├── download_data.py               # Data download script (World Bank + IMF + Big Mac data)
 ├── language.py                     # Bilingual translation module
 ├── data/
 │   ├── all_countries_with_iso_continents.csv  # Country metadata
@@ -139,10 +141,14 @@ GDP_trend/
   - GDP PPP (current international $)
   - GDP per capita PPP (current international $)
   - Total population
+  - Inflation CPI, unemployment, exports/imports as % of GDP, tax revenue as % of GDP
+  - Manufacturing and services value added as % of GDP
 - **IMF DataMapper API**: Economic data for Taiwan
-  - GDP, GDP per capita, GDP PPP, GDP per capita PPP, and population
+  - GDP, GDP per capita, GDP PPP, GDP per capita PPP, population, inflation, and unemployment
+- **The Economist Big Mac Data**: Big Mac index data from `TheEconomist/big-mac-data`
+  - Annual latest observation of the raw USD Big Mac index, expressed as %
 - **pycountry**: ISO country codes and names
-- **Time Range**: 2000 to 2024
+- **Time Range**: 2000 to the latest available year by source
 - **Update Frequency**: Manual via `download_data.py` script
 
 ## Available Indicators
@@ -152,6 +158,14 @@ GDP_trend/
 - `gdp_ppp_current_intl`: GDP based on purchasing power parity (current international $)
 - `gdp_per_capita_ppp_current_intl`: GDP per capita based on purchasing power parity (current international $)
 - `population_total`: Total population
+- `inflation_cpi_annual_pct`: Inflation, consumer prices (annual %)
+- `unemployment_total_pct`: Unemployment, total (% of total labor force)
+- `exports_goods_services_pct_gdp`: Exports of goods and services (% of GDP)
+- `imports_goods_services_pct_gdp`: Imports of goods and services (% of GDP)
+- `tax_revenue_pct_gdp`: Tax revenue (% of GDP)
+- `manufacturing_value_added_pct_gdp`: Manufacturing value added (% of GDP)
+- `services_value_added_pct_gdp`: Services value added (% of GDP)
+- `big_mac_index_usd`: Big Mac raw index vs USD (% over/undervaluation)
 - `gdp_per_capita_current_usd_yoy`: Year-over-year GDP per capita growth rate (%, calculated)
 
 ## API Integration
@@ -161,13 +175,19 @@ GDP_trend/
 - Accessed via the `wbgapi` Python package
 - Rate limiting implemented with delays between requests
 - Automatic error handling for missing data
-- Covers 200+ countries and territories
+- Covers 200+ countries and territories for World Bank indicators, with coverage varying by indicator
 
 ### IMF DataMapper API
 
 - Direct REST API calls for Taiwan economic data
 - Base URL: `https://www.imf.org/external/datamapper/api/v1`
-- Provides GDP, GDP PPP, and population data for Taiwan (2000-2024)
+- Provides GDP, GDP PPP, population, inflation, and unemployment data for Taiwan
+
+### The Economist Big Mac Data
+
+- Direct CSV download from `https://raw.githubusercontent.com/TheEconomist/big-mac-data/master/output-data/big-mac-full-index.csv`
+- Keeps the latest Big Mac survey observation in each year for each country
+- Stores the raw USD index as percentage over/undervaluation versus the US dollar
 
 ### ModelScope API
 
@@ -176,4 +196,4 @@ GDP_trend/
 - Model: `ZhipuAI/GLM-4.6` for SQL generation and data summarization
 - Supports bilingual output (English/Chinese)
 
-**Data Source**: World Bank
+**Data Sources**: World Bank, IMF DataMapper, The Economist Big Mac data

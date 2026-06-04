@@ -17,6 +17,22 @@ import os
 import requests
 import json
 
+PERCENT_INDICATORS = {
+    "inflation_cpi_annual_pct",
+    "unemployment_total_pct",
+    "exports_goods_services_pct_gdp",
+    "imports_goods_services_pct_gdp",
+    "tax_revenue_pct_gdp",
+    "manufacturing_value_added_pct_gdp",
+    "services_value_added_pct_gdp",
+    "big_mac_index_usd",
+}
+
+BIG_MAC_FULL_INDEX_URL = (
+    "https://raw.githubusercontent.com/TheEconomist/big-mac-data/master/"
+    "output-data/big-mac-full-index.csv"
+)
+
 # Countries to exclude from download (no data available in World Bank API)
 EXCLUDE_COUNTRIES = [
     "Anguilla",
@@ -55,6 +71,15 @@ EXCLUDE_COUNTRIES = [
     "Holy See (Vatican City State)",
     "Wallis and Futuna",
 ]
+
+
+def round_indicator_value(indicator_name, raw_value):
+    """
+    Round values by indicator type.
+    """
+    if indicator_name in PERCENT_INDICATORS:
+        return round(raw_value, 2)
+    return round(raw_value)
 
 
 def create_country_reference_table():
@@ -617,6 +642,8 @@ def download_taiwan_data_from_imf():
         "LP": "population_total",  # Population (millions, need to convert)
         "PPPGDP": "gdp_ppp_current_intl",  # GDP, PPP (current international $)
         "PPPPC": "gdp_per_capita_ppp_current_intl",  # GDP per capita, PPP (current international $)
+        "PCPIPCH": "inflation_cpi_annual_pct",  # Inflation rate, average consumer prices
+        "LUR": "unemployment_total_pct",  # Unemployment rate
     }
 
     taiwan_data = []
@@ -648,6 +675,8 @@ def download_taiwan_data_from_imf():
                     for year_str, value in twn_values.items():
                         if value is not None:
                             year = int(year_str)
+                            if year < start_year or year > end_year:
+                                continue
 
                             # Convert and round values
                             if indicator_name == "population_total":
@@ -663,7 +692,7 @@ def download_taiwan_data_from_imf():
                                 # Per capita values are already in correct units
                                 rounded_value = round(value)
                             else:
-                                rounded_value = round(value)
+                                rounded_value = round_indicator_value(indicator_name, value)
 
                             taiwan_data.append(
                                 {
@@ -691,6 +720,80 @@ def download_taiwan_data_from_imf():
     return pd.DataFrame(taiwan_data)
 
 
+def download_big_mac_index_data(df_countries):
+    """
+    Download The Economist Big Mac index data and convert it to annual rows.
+
+    The dashboard stores one value per country/year/indicator. The Economist
+    publishes multiple survey dates in some years, so this keeps the latest
+    observation for each country and year. Values are the raw USD valuation
+    index converted to percentage points.
+    """
+    print("Downloading Big Mac index data from The Economist GitHub repository...")
+
+    try:
+        df_big_mac = pd.read_csv(BIG_MAC_FULL_INDEX_URL)
+    except Exception as e:
+        print(f"Warning: Failed to download Big Mac index data: {str(e)}")
+        return pd.DataFrame()
+
+    required_columns = {"date", "iso_a3", "USD_raw"}
+    if not required_columns.issubset(df_big_mac.columns):
+        missing = ", ".join(sorted(required_columns - set(df_big_mac.columns)))
+        print(f"Warning: Big Mac index data is missing required columns: {missing}")
+        return pd.DataFrame()
+
+    df_big_mac = df_big_mac.dropna(subset=["date", "iso_a3", "USD_raw"]).copy()
+    df_big_mac["date"] = pd.to_datetime(df_big_mac["date"], errors="coerce")
+    df_big_mac = df_big_mac.dropna(subset=["date"])
+    df_big_mac["year"] = df_big_mac["date"].dt.year
+    df_big_mac = df_big_mac[(df_big_mac["year"] >= 2000) & (df_big_mac["year"] <= 2026)]
+
+    df_big_mac = (
+        df_big_mac.sort_values(["iso_a3", "year", "date"])
+        .groupby(["iso_a3", "year"], as_index=False)
+        .tail(1)
+    )
+
+    country_lookup = {
+        row["country_code_3"]: row
+        for _, row in df_countries.iterrows()
+        if pd.notna(row["country_code_3"])
+    }
+    country_lookup["TWN"] = {
+        "country_name": "Taiwan",
+        "country_code_2": "TW",
+        "country_code_3": "TWN",
+        "continent": "Asia",
+    }
+
+    big_mac_data = []
+    skipped_codes = set()
+    for _, row in df_big_mac.iterrows():
+        country = country_lookup.get(row["iso_a3"])
+        if country is None:
+            skipped_codes.add(row["iso_a3"])
+            continue
+
+        big_mac_data.append(
+            {
+                "country_name": country["country_name"],
+                "country_code_2": country["country_code_2"],
+                "country_code_3": country["country_code_3"],
+                "continent": country["continent"],
+                "year": int(row["year"]),
+                "indicator": "big_mac_index_usd",
+                "value": round_indicator_value("big_mac_index_usd", row["USD_raw"] * 100),
+            }
+        )
+
+    if skipped_codes:
+        print(f"Skipped non-country Big Mac codes: {', '.join(sorted(skipped_codes))}")
+
+    print(f"Downloaded {len(big_mac_data)} annual Big Mac index data points")
+    return pd.DataFrame(big_mac_data)
+
+
 def download_economic_data(df_countries):
     """
     Download GDP, GDP per capita, and population data from World Bank API.
@@ -711,6 +814,13 @@ def download_economic_data(df_countries):
         "SP.POP.TOTL": "population_total",  # Total population
         "NY.GDP.MKTP.PP.CD": "gdp_ppp_current_intl",  # GDP, PPP (current international $)
         "NY.GDP.PCAP.PP.CD": "gdp_per_capita_ppp_current_intl",  # GDP per capita, PPP (current international $)
+        "FP.CPI.TOTL.ZG": "inflation_cpi_annual_pct",  # Inflation, consumer prices (annual %)
+        "SL.UEM.TOTL.ZS": "unemployment_total_pct",  # Unemployment, total (% of labor force)
+        "NE.EXP.GNFS.ZS": "exports_goods_services_pct_gdp",  # Exports of goods and services (% of GDP)
+        "NE.IMP.GNFS.ZS": "imports_goods_services_pct_gdp",  # Imports of goods and services (% of GDP)
+        "GC.TAX.TOTL.GD.ZS": "tax_revenue_pct_gdp",  # Tax revenue (% of GDP)
+        "NV.IND.MANF.ZS": "manufacturing_value_added_pct_gdp",  # Manufacturing value added (% of GDP)
+        "NV.SRV.TOTL.ZS": "services_value_added_pct_gdp",  # Services value added (% of GDP)
     }
 
     # Create empty list to store data
@@ -777,14 +887,7 @@ def download_economic_data(df_countries):
 
                     # Round values based on indicator type for consistency
                     raw_value = point["value"]
-                    if indicator_name == "gdp_current_usd":
-                        rounded_value = round(raw_value)
-                    elif indicator_name == "gdp_per_capita_current_usd":
-                        rounded_value = round(raw_value)
-                    elif indicator_name == "population_total":
-                        rounded_value = round(raw_value)
-                    else:
-                        rounded_value = round(raw_value)
+                    rounded_value = round_indicator_value(indicator_name, raw_value)
 
                     all_data.append(
                         {
@@ -868,10 +971,18 @@ def main():
             print(f"Added Taiwan data from IMF: {len(df_taiwan)} data points")
             countries_with_data += 1
 
-        # Step 5: Save data to files
+        # Step 5: Download Big Mac index data from The Economist
+        df_big_mac = download_big_mac_index_data(df_countries)
+
+        # Step 6: Merge Big Mac index data with the economic data
+        if len(df_big_mac) > 0:
+            df_gdp = pd.concat([df_gdp, df_big_mac], ignore_index=True)
+            print(f"Added Big Mac index data: {len(df_big_mac)} data points")
+
+        # Step 7: Save data to files
         save_data_files(df_countries, df_gdp)
 
-        # Step 6: Print summary
+        # Step 8: Print summary
         print("\n" + "=" * 60)
         print("Download Complete!")
         print("=" * 60)
